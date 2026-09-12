@@ -1,248 +1,325 @@
-# FollowUp
+# FollowUp | AI Conversation Action Tracker
 
-Don't lose promises inside conversations.
+A full-stack application I built to turn conversations into actionable follow-ups.
 
-## The problem
+FollowUp analyzes conversations and identifies **commitments** and **waiting items**, then tracks their due dates, status, and follow-up risk in one place.
 
-People make commitments inside conversations, emails, meeting notes, and
-client messages, things like "I'll send the proposal tomorrow" or "we're
-still waiting on the client to approve the design", but those commitments
-usually never turn into an actual task. A task manager only has what someone
-remembered to type into it. Everything said out loud or typed into a chat
-thread just evaporates.
+## What I Built
 
-FollowUp reads a conversation and pulls out two things: commitments (things
-someone said they would do) and waiting items (things the team is blocked
-on). It keeps the exact sentence each one came from, works out a due date
-where it can, and tells you what's due soon, what's overdue, and what looks
-like it's been quietly forgotten.
+Important tasks and promises often get buried inside client conversations, meeting notes, and messages.
 
-## How it works
+For example:
 
-```
-User
- |
- v
-React UI
- |
- v
-FastAPI
- |
- v
-Document Parser (txt, md, json, pdf)
- |
- v
-AI analyzer (OpenAI) or Local analyzer (regex/rules)
- |
- v
-Pydantic validation
- |
- v
-SQLite
- |
- v
-Status engine (open / due soon / overdue / waiting / completed)
- |
- v
-Risk engine (Follow-Up Risk score)
- |
- v
-Follow-up queue (what you see in the app)
+> "I'll send the proposal tomorrow."
+
+or:
+
+> "We're still waiting for the client to approve the design."
+
+FollowUp turns these statements into structured items that can be reviewed and tracked instead of being forgotten.
+
+The application can:
+
+* Extract commitments from conversations
+* Identify waiting items
+* Keep the original sentence as evidence
+* Detect common due dates such as today, tomorrow, next week, and specific dates
+* Track open, due soon, overdue, waiting, and completed items
+* Calculate a follow-up risk score
+* Flag potentially forgotten items
+* Allow users to edit and complete follow-ups
+* Analyze documents in TXT, Markdown, JSON, and PDF formats
+
+## How It Works
+
+```text
+Conversation / Document
+        ↓
+Document Parser
+        ↓
+AI or Local Analysis
+        ↓
+Commitments + Waiting Items
+        ↓
+Date & Status Processing
+        ↓
+Risk Calculation
+        ↓
+Follow-up Dashboard
 ```
 
-The AI (or the local analyzer, when there's no API key) only does one job:
-find the commitments and waiting items and copy out the evidence. Everything
-after that, due dates, overdue detection, the risk score, is plain backend
-logic. That split matters: a model can misjudge what counts as a commitment,
-but it should never get to invent whether something is overdue. Dates are
-computed against the actual server clock, every time.
+The project supports two analysis modes.
 
-### AI mode vs. local mode
+### AI Analysis
 
-If `OPENAI_API_KEY` is set, FollowUp sends the conversation text to OpenAI
-with a strict JSON schema and validates the response with Pydantic before
-touching the database. If the key is missing, the request fails, or the
-model returns something that doesn't validate, FollowUp falls back to a
-local, regex-based analyzer and labels the project "Local analysis" instead
-of pretending it ran AI analysis. The mode is always shown honestly in the
-sidebar, it reflects what actually happened for that project, not what's
-configured in the environment.
+When an OpenAI API key is available, the conversation is sent to the configured model and the response is validated before being saved.
 
-The local analyzer knows common ways people phrase commitments ("I'll...",
-"I need to...", "can you remind me...") and waiting states ("still waiting
-for...", "haven't received..."), and it deliberately skips hedged language
-like "I think we should..." so it doesn't turn opinions into fake tasks. It
-is not as sharp as a real model, and it says so.
+### Local Analysis
 
-### Follow-Up Risk
+The application can also run without an API key using a rule-based NLP approach.
 
-A 0-100 score computed per project, entirely from the database, no model
-involved:
+This makes the project easier to run locally and also gives the application a fallback when the AI service is unavailable.
 
-| Signal | Points |
-|---|---|
-| Each overdue commitment | +15 (capped at 60) |
-| Each high-priority commitment that isn't overdue or done | +10 (capped at 30) |
-| Each unresolved commitment with no clear owner | +5 (capped at 20) |
-| Each unresolved commitment with no due date | +5 (capped at 20) |
-| Each waiting item stale for 3+ days | +8 (capped at 30) |
+The local analyzer handles common patterns such as:
 
-The total is clamped to 0-100. 0-24 is Low, 25-49 Medium, 50-74 High, 75-100
-Critical. The "why" list under the score is generated from whichever of the
-above actually contributed, so it always matches the records in the project.
+* "I'll send..."
+* "I need to..."
+* "Can you remind me..."
+* "We're waiting for..."
+* "Haven't received..."
 
-### Forgotten commitments
+It also avoids treating uncertain statements such as "I think we should..." as confirmed commitments.
 
-A commitment is flagged as forgotten when it's overdue, or when it has no
-due date at all but the source text was a clear, explicit commitment (not a
-vague suggestion) and it's still open. A waiting item is flagged once it's
-been sitting unresolved for 5 days or more. This is the same idea as the
-risk score, applied item by item instead of as one number.
+## Follow-Up Risk
 
-## Tech stack
+Each project receives a risk score from 0 to 100 based on the current follow-up data.
 
-- **Frontend**: React, Vite, Tailwind CSS, Framer Motion, Lucide icons
-- **Backend**: Python, FastAPI, Pydantic
-- **Database**: SQLite (via SQLAlchemy)
-- **AI**: OpenAI API (optional, gpt-4o-mini by default)
-- **Documents**: PyMuPDF for PDF, standard library for txt/markdown/JSON
+The score considers:
 
-## Project structure
+| Signal                              | Score |
+| ----------------------------------- | ----: |
+| Overdue commitment                  |   +15 |
+| High-priority unresolved commitment |   +10 |
+| Commitment without a clear owner    |    +5 |
+| Commitment without a due date       |    +5 |
+| Waiting item older than 3 days      |    +8 |
 
-```
-followup/
-├── frontend/            React + Vite app
-│   └── src/
-│       ├── components/  Cards, badges, modal, app shell
-│       ├── pages/       Overview, Analyze, Follow-ups, Completed
-│       ├── hooks/       useProjectData (loads/refreshes a project)
-│       └── lib/         api.js, the fetch client
-├── backend/
-│   └── app/
-│       ├── main.py
-│       ├── database.py
-│       ├── models.py
-│       ├── schemas.py
-│       ├── routes/          projects, analyze, commitments, waiting
-│       ├── services/        ai_analyzer, fallback_analyzer, document_parser,
-│       │                    date_parser, status_engine, risk_engine, pipeline
-│       └── utils/forgotten.py
-├── sample_data/demo_conversation.txt
-└── backend/tests/
-```
+The score is limited to 100.
 
-## Running it locally
+|  Score | Risk     |
+| -----: | -------- |
+|   0-24 | Low      |
+|  25-49 | Medium   |
+|  50-74 | High     |
+| 75-100 | Critical |
 
-### Backend
+The risk calculation is handled by the backend rather than the AI model, so the score is based on the actual records stored in the database.
 
-```bash
-cd backend
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-# optionally add your OpenAI key to .env, otherwise it runs in local mode
-uvicorn app.main:app --reload --port 8000
-```
+## Screenshots
 
-The backend creates `backend/followup.db` (SQLite) automatically on first
-run. `GET http://localhost:8000/api/health` should return
-`{"status": "ok", "analysis_mode": "local"}` (or `"ai"` if a key is set).
+### Overview
+
+![Overview](screenshots/overview.png)
+
+### Conversation Analysis
+
+![Conversation Analysis](screenshots/analyze.png)
+
+### Follow-ups
+
+![Follow-ups](screenshots/followups.png)
+
+### Completed Items
+
+![Completed Items](screenshots/completed.png)
+
+> Screenshots show the actual application running locally.
+
+## Tech Stack
 
 ### Frontend
 
-```bash
+* React
+* Vite
+* Tailwind CSS
+* Framer Motion
+* Lucide Icons
+
+### Backend
+
+* Python
+* FastAPI
+* Pydantic
+* SQLAlchemy
+
+### Database
+
+* SQLite
+
+### AI
+
+* OpenAI API
+* Local rule-based analyzer
+
+### Document Processing
+
+* PyMuPDF
+* TXT
+* Markdown
+* JSON
+
+## Project Structure
+
+```text
+followup/
+│
+├── frontend/
+│   └── src/
+│       ├── components/
+│       ├── pages/
+│       ├── hooks/
+│       └── lib/
+│
+├── backend/
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── database.py
+│   │   ├── models.py
+│   │   ├── schemas.py
+│   │   ├── routes/
+│   │   ├── services/
+│   │   └── utils/
+│   │
+│   ├── tests/
+│   └── requirements.txt
+│
+├── sample_data/
+│   └── demo_conversation.txt
+│
+└── README.md
+```
+
+## Running Locally
+
+### 1. Backend
+
+Open a terminal in the project root:
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+Copy-Item .env.example .env
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+The backend will run at:
+
+```text
+http://localhost:8000
+```
+
+SQLite is created automatically when the backend starts.
+
+### 2. Frontend
+
+Open a second terminal:
+
+```powershell
 cd frontend
 npm install
-cp .env.example .env
+Copy-Item .env.example .env
 npm run dev
 ```
 
-Open `http://localhost:5173`. It talks to the backend at
-`http://localhost:8000` by default (set `VITE_API_BASE` in `.env` to change
-that).
+Open:
 
-### Environment variables
-
-Backend (`backend/.env`):
-
-```
-OPENAI_API_KEY=       # optional, leave blank to run in local mode
-OPENAI_MODEL=         # optional, defaults to gpt-4o-mini
-CORS_ORIGINS=         # optional, defaults to localhost:5173
+```text
+http://localhost:5173
 ```
 
-Frontend (`frontend/.env`):
+### 3. Environment Variables
 
+Backend:
+
+```env
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+CORS_ORIGINS=http://localhost:5173
 ```
+
+The OpenAI key is optional. The application can run using the local analyzer.
+
+Frontend:
+
+```env
 VITE_API_BASE=http://localhost:8000
 ```
 
-### Trying the demo
+## Demo
 
-Click "Try demo" on the Overview page, or "Use demo conversation" on the
-Analyze page. Either one runs analysis against
-`sample_data/demo_conversation.txt`, a short, clearly-labeled conversation
-for a fictional project called "Atlas Client Portal". It's built to produce
-a mix of results: a few commitments with dates, one without a date, a
-waiting item, and one hedged opinion that should NOT turn into a commitment.
+The project includes a sample conversation:
 
-### Testing AI mode
-
-Set `OPENAI_API_KEY` in `backend/.env`, restart the backend, and confirm
-`/api/health` reports `"analysis_mode": "ai"`. Run the demo or paste your
-own conversation, if the OpenAI call fails for any reason, FollowUp quietly
-falls back to local analysis and the project is still labeled honestly.
-
-### Backend tests
-
-```bash
-cd backend
-python3 -m pytest tests/ -v
+```text
+sample_data/demo_conversation.txt
 ```
 
-Covers the health endpoint, local extraction (including that hedged
-opinions don't become commitments), date parsing, overdue/due-soon status
-calculation, and a full API flow: run the demo, fetch commitments and
-waiting items, check stats, complete an item, and confirm the stats update.
+From the Overview page, click **Try Demo**.
 
-## API endpoints
+The demo contains a fictional client conversation with different types of commitments and waiting items.
 
+It demonstrates how FollowUp extracts actionable information and turns it into trackable items.
+
+## Testing
+
+The backend includes automated tests for:
+
+* API health
+* Commitment extraction
+* Waiting item extraction
+* Date parsing
+* Due-soon and overdue status
+* Risk calculations
+* Complete API workflow
+
+Run the tests from the backend folder:
+
+```powershell
+python -m pytest tests/ -v
 ```
+
+## API
+
+Main endpoints include:
+
+```text
 GET    /api/health
+
 GET    /api/projects
 POST   /api/projects
 GET    /api/projects/{id}
 DELETE /api/projects/{id}
-GET    /api/projects/{id}/commitments
-GET    /api/projects/{id}/waiting
-GET    /api/projects/{id}/stats
-GET    /api/projects/{id}/forgotten
+
 POST   /api/projects/{id}/analyze
 POST   /api/analyze
 POST   /api/demo
+
+GET    /api/projects/{id}/commitments
 PATCH  /api/commitments/{id}
 DELETE /api/commitments/{id}
+
+GET    /api/projects/{id}/waiting
 PATCH  /api/waiting/{id}
 DELETE /api/waiting/{id}
+
+GET    /api/projects/{id}/stats
+GET    /api/projects/{id}/forgotten
 ```
 
-## Genuine limitations
+## Limitations
 
-- The local analyzer is pattern-based. It will miss indirect or unusually
-  phrased commitments that a real model would catch, that's the whole
-  reason AI mode exists.
-- Speaker attribution (who owns a commitment) only works when the source
-  text uses a `Name: message` format, common in chat exports and meeting
-  notes, but not universal. Free-flowing prose without speaker labels will
-  often come back with "Unclear" as the person.
-- Date parsing covers the common phrasings (today, tomorrow, weekdays,
-  "next week", "in N days", explicit month/day), not every way a date can
-  be written in English.
-- AI mode was built and validated against the OpenAI API contract but
-  couldn't be exercised end-to-end in this environment (no outbound access
-  to api.openai.com here). The local fallback path, which AI mode also
-  relies on whenever a call fails, is fully tested.
-- There's no auth. Every project in the SQLite file is visible to whoever
-  can reach the API. Fine for a local/portfolio tool, not for multi-user
-  deployment as-is.
+The current version is designed as a portfolio and local-use project, so there are a few limitations:
+
+* The local analyzer works with common patterns and may miss unusual wording.
+* Speaker detection works best with `Name: message` formatted conversations.
+* Date parsing focuses on common English date expressions.
+* AI analysis requires an OpenAI API key.
+* There is currently no authentication or multi-user access control.
+* SQLite is suitable for local use but would need to be replaced or configured differently for a larger production deployment.
+
+## What I Learned
+
+This project gave me practical experience combining NLP, LLM integration, backend APIs, database design, frontend development, and automated testing in one application.
+
+One of the main things I focused on was keeping the AI part separate from the core application logic. The model helps identify information from conversations, while dates, status, risk calculations, and database operations are handled by the application itself.
+
+## About
+
+I built FollowUp as a practical AI application to explore how conversation data can be converted into useful workflows.
+
+It combines AI-assisted text analysis with traditional backend logic rather than relying entirely on an LLM.
+
+**Built by Muhammad Rameez**
+
+AI/ML Engineer | RAG Pipelines, NLP, LangChain, Python

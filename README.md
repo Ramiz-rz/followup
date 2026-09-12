@@ -241,7 +241,7 @@ VITE_API_BASE=http://localhost:8000
 The project includes a sample conversation:
 
 ```text
-sample_data/demo_conversation.txt
+test_data/test_data.txt
 ```
 
 From the Overview page, click **Try Demo**.

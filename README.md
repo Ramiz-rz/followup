@@ -173,8 +173,8 @@ followup/
 │   ├── tests/
 │   └── requirements.txt
 │
-├── sample_data/
-│   └── demo_conversation.txt
+├── test_data/
+│   └── test_data.txt
 │
 └── README.md
 ```
@@ -190,7 +190,6 @@ cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
-Copy-Item .env.example .env
 python -m uvicorn app.main:app --reload --port 8000
 ```
 
@@ -209,7 +208,7 @@ Open a second terminal:
 ```powershell
 cd frontend
 npm install
-Copy-Item .env.example .env
+.env
 npm run dev
 ```
 
